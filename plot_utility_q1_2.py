@@ -77,8 +77,11 @@ def power_mw(v: float, D: float) -> float:
 
 
 def cost(D: float, H: float) -> float:
-    """Cost approximation C = 0.2019343678*D^2 - 14.239267990*H (units arbitrary)."""
-    return 0.2019343678 * (D ** 2) - 14.239267990 * H
+    """Cost approximation using provided weights: C = w1*D^2 + w2*H + w3."""
+    w1 = 0.1557211415
+    w2 = 15.6249220271
+    w3 = -2065.5926440647
+    return w1 * (D ** 2) + w2 * H + w3
 
 
 def compute_mean_power(ws50_series: List[float], D: float, H: float) -> float:
@@ -117,28 +120,27 @@ def main() -> None:
             u = util[(D, H)]
             print(f"{int(D)},{int(H)},{mp:.6f},{c:.6f},{u:.8f}")
 
-    # Plot grouped bar chart: groups by D, bars for H
+    # Plot grouped bar chart: groups by H, bars for D
     fig, ax = plt.subplots(figsize=(9, 5.5))
-    x_positions = list(range(len(Ds)))
+    x_positions = list(range(len(Hs)))
     width = 0.22
     offsets = [-width, 0.0, width]
     colors = ["#4e79a7", "#59a14f", "#e15759"]
 
-    for idx_h, (H, offset, color) in enumerate(zip(Hs, offsets, colors)):
-        heights = [util[(D, H)] for D in Ds]
-        bars = ax.bar([x + offset for x in x_positions], heights, width=width, color=color, label=f"H={int(H)}m")
+    for idx_d, (D, offset, color) in enumerate(zip(Ds, offsets, colors)):
+        heights = [util[(D, H)] for H in Hs]
+        bars = ax.bar([x + offset for x in x_positions], heights, width=width, color=color, label=f"D={int(D)}m")
         # Annotate values on each bar
         for b in bars:
             h = b.get_height()
-            # position text slightly above top for positive, below for negative
             va = "bottom" if h >= 0 else "top"
             y = h + (0.02 * abs(h) + 1e-6) if h >= 0 else h - (0.02 * abs(h) + 1e-6)
             ax.text(b.get_x() + b.get_width()/2, y, f"{h:.3f}", ha="center", va=va, fontsize=9, rotation=0)
 
-    ax.set_xticks(x_positions, [f"D={int(D)}m" for D in Ds])
-    ax.set_ylabel("Utility = Mean Power (MW) / Cost")
-    ax.set_title("Utility by Turbine Diameter and Hub Height")
-    ax.legend(title="Hub Height")
+    ax.set_xticks(x_positions, [f"H={int(H)}m" for H in Hs])
+    ax.set_ylabel("Utility = Mean Power (MW) / Cost C(D,H)")
+    ax.set_title("Utility by Hub Height (groups) and Diameter (bars)")
+    ax.legend(title="Diameter")
     ax.axhline(0, color="#333", linewidth=0.8)
     fig.tight_layout()
 
