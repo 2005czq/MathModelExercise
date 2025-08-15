@@ -109,6 +109,70 @@ def main():
     print(f"MSE GD: {mse(w1_gd, w2_gd):.6f}")
     print(f"MSE CF: {mse(w1_cf, w2_cf):.6f}")
 
+    # Plot data points and the fitted function (plane) using matplotlib in 3D
+    try:
+        # Use a non-interactive backend for headless environments
+        import matplotlib
+        try:
+            # Only set backend if no display found
+            import os
+            if not os.environ.get("DISPLAY"):
+                matplotlib.use("Agg")
+        except Exception:
+            pass
+        import matplotlib.pyplot as plt
+        from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  (needed for 3D projection)
+        import numpy as np
+
+        # Build a mesh over the feature ranges (x1=D^2, x2=H)
+        x1_min, x1_max = min(x1), max(x1)
+        x2_min, x2_max = min(x2), max(x2)
+        pad1 = 0.05 * (x1_max - x1_min if x1_max > x1_min else (abs(x1_max) + 1.0))
+        pad2 = 0.05 * (x2_max - x2_min if x2_max > x2_min else (abs(x2_max) + 1.0))
+        X1, X2 = np.meshgrid(
+            np.linspace(x1_min - pad1, x1_max + pad1, 30),
+            np.linspace(x2_min - pad2, x2_max + pad2, 30),
+        )
+        Z_gd = w1_gd * X1 + w2_gd * X2
+
+        fig = plt.figure(figsize=(8, 6))
+        ax = fig.add_subplot(111, projection="3d")
+
+        # Scatter original data points
+        ax.scatter(x1, x2, y, color="crimson", s=50, depthshade=True, label="data points")
+
+        # Plot fitted plane (GD)
+        surf = ax.plot_surface(X1, X2, Z_gd, alpha=0.4, cmap="viridis", linewidth=0, antialiased=True)
+
+        ax.set_xlabel("D^2")
+        ax.set_ylabel("H")
+        ax.set_zlabel("C")
+        ax.set_title(f"Fitted plane: C = {w1_gd:.4g}·D^2 + {w2_gd:.4g}·H")
+
+        # Legend: create a proxy for the surface
+        from matplotlib.patches import Patch
+
+        proxy = Patch(facecolor="yellowgreen", alpha=0.4, label="fitted plane (GD)")
+        ax.legend(handles=[proxy], loc="best")
+
+        # Show interactively if a display is available; otherwise save to file as fallback
+        import os as _os
+        has_display = bool(_os.environ.get("DISPLAY"))
+        plt.tight_layout()
+        if has_display:
+            plt.show()
+            plt.close(fig)
+        else:
+            fig_dir = Path(__file__).parent / "figures"
+            fig_dir.mkdir(parents=True, exist_ok=True)
+            out_path = fig_dir / "price_fit_3d.png"
+            plt.savefig(out_path, dpi=150)
+            plt.close(fig)
+            print(f"No DISPLAY found; saved 3D fit visualization to: {out_path}")
+    except Exception as e:
+        # Do not crash the script if plotting fails
+        print(f"Plotting skipped due to error: {e}")
+
 
 if __name__ == "__main__":
     main()
