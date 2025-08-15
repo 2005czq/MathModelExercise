@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Fit C = w1 * D^2 + w2 * H using gradient descent on the 4 points in data/price.csv.
+Fit C = w1 * D^2 + w2 * H + w3 (intercept) using gradient descent on data/price.csv.
 Also compute the closed-form (normal equations) solution as a check.
 """
 from __future__ import annotations
@@ -29,12 +29,12 @@ def load_data(path: Path):
 
 
 def gradient_descent(x1, x2, y, *, lr=1e-2, iters=200000, scale1=10000.0, scale2=100.0):
-    """Gradient descent without intercept using feature scaling by divisors scale1, scale2.
+    """Gradient descent with intercept using feature scaling by divisors scale1, scale2.
 
-    We minimize MSE: (1/n) * sum (w1*x1 + w2*x2 - y)^2.
+    We minimize MSE: (1/n) * sum (w1*x1 + w2*x2 + w3 - y)^2.
 
-    To improve conditioning, we optimize w' over scaled features x1' = x1/scale1, x2' = x2/scale2
-    and then map back: w1 = w1'/scale1, w2 = w2'/scale2.
+    To improve conditioning, we optimize w' over scaled features x1' = x1/scale1, x2' = x2/scale2,
+    keeping intercept unscaled. Map back: w1 = w1'/scale1, w2 = w2'/scale2, w3 = w3'.
     """
     n = len(y)
     xs1 = [v / scale1 for v in x1]
@@ -42,72 +42,121 @@ def gradient_descent(x1, x2, y, *, lr=1e-2, iters=200000, scale1=10000.0, scale2
 
     w1p = 0.0
     w2p = 0.0
+    w3p = 0.0
 
     for t in range(iters):
         g1 = 0.0
         g2 = 0.0
+        g3 = 0.0
         loss = 0.0
         for i in range(n):
-            pred = w1p * xs1[i] + w2p * xs2[i]
+            pred = w1p * xs1[i] + w2p * xs2[i] + w3p
             err = pred - y[i]
             loss += err * err
             g1 += err * xs1[i]
             g2 += err * xs2[i]
+            g3 += err
         g1 *= 2.0 / n
         g2 *= 2.0 / n
+        g3 *= 2.0 / n
 
         w1p -= lr * g1
         w2p -= lr * g2
+        w3p -= lr * g3
 
         if (t + 1) % 10000 == 0:
             rmse = math.sqrt(loss / n)
             # print(f"iter {t+1:7d}  rmse={rmse:10.6f}  w1'={w1p:.8f} w2'={w2p:.8f}")
-            if max(abs(g1), abs(g2)) < 1e-6:
+            if max(abs(g1), abs(g2), abs(g3)) < 1e-6:
                 break
 
     w1 = w1p / scale1
     w2 = w2p / scale2
-    return w1, w2
+    w3 = w3p
+    return w1, w2, w3
 
 
-def normal_equations_2x2(x1, x2, y):
-    """Solve [S11 S12; S12 S22] [w1 w2]^T = [t1 t2]^T without numpy."""
+def normal_equations_3x3_with_intercept(x1, x2, y):
+    """Solve normal equations for model y = w1*x1 + w2*x2 + w3 using 3x3 linear solve.
+
+    We form the system A w = b where:
+      A = [[S11, S12, S10],
+           [S12, S22, S20],
+           [S10, S20,  n ]]
+      b = [t1, t2, t0]
+    with S11=sum(x1^2), S22=sum(x2^2), S12=sum(x1*x2), S10=sum(x1), S20=sum(x2), t1=sum(x1*y), t2=sum(x2*y), t0=sum(y)
+    Returns (w1, w2, w3) without using numpy for the solve.
+    """
+    n = len(y)
     S11 = sum(v * v for v in x1)
     S22 = sum(v * v for v in x2)
     S12 = sum(a * b for a, b in zip(x1, x2))
+    S10 = sum(x1)
+    S20 = sum(x2)
     t1 = sum(a * c for a, c in zip(x1, y))
     t2 = sum(b * c for b, c in zip(x2, y))
+    t0 = sum(y)
 
-    det = S11 * S22 - S12 * S12
-    if abs(det) < 1e-12:
-        raise ZeroDivisionError("Design matrix is singular or ill-conditioned for 2x2 system.")
+    # Build augmented matrix for Gaussian elimination with partial pivoting
+    A = [
+        [S11, S12, S10, t1],
+        [S12, S22, S20, t2],
+        [S10, S20, float(n), t0],
+    ]
 
-    w1 = (t1 * S22 - t2 * S12) / det
-    w2 = (S11 * t2 - S12 * t1) / det
-    return w1, w2
+    # Gaussian elimination (3x3) with partial pivoting
+    for col in range(3):
+        # Pivot selection
+        pivot_row = max(range(col, 3), key=lambda r: abs(A[r][col]))
+        if abs(A[pivot_row][col]) < 1e-14:
+            raise ZeroDivisionError("Design matrix is singular or ill-conditioned for 3x3 system.")
+        if pivot_row != col:
+            A[col], A[pivot_row] = A[pivot_row], A[col]
+
+        # Normalize pivot row
+        pivot = A[col][col]
+        for j in range(col, 4):
+            A[col][j] /= pivot
+
+        # Eliminate below
+        for r in range(col + 1, 3):
+            factor = A[r][col]
+            for j in range(col, 4):
+                A[r][j] -= factor * A[col][j]
+
+    # Back substitution
+    w = [0.0, 0.0, 0.0]
+    for i in reversed(range(3)):
+        s = A[i][3] - sum(A[i][j] * w[j] for j in range(i + 1, 3))
+        w[i] = s / A[i][i]
+
+    w1, w2, w3 = w[0], w[1], w[2]
+    return w1, w2, w3
 
 
 def main():
     x1, x2, y = load_data(DATA_PATH)
 
-    w1_gd, w2_gd = gradient_descent(x1, x2, y)  # use tuned defaults
-    w1_cf, w2_cf = normal_equations_2x2(x1, x2, y)
+    w1_gd, w2_gd, w3_gd = gradient_descent(x1, x2, y)  # use tuned defaults
+    w1_cf, w2_cf, w3_cf = normal_equations_3x3_with_intercept(x1, x2, y)
 
-    print("Gradient Descent Solution (no intercept):")
+    print("Gradient Descent Solution (with intercept):")
     print(f"  w1 = {w1_gd:.10f}")
     print(f"  w2 = {w2_gd:.10f}")
+    print(f"  w3 = {w3_gd:.10f}")
     print()
     print("Closed-form (normal equations) Solution:")
     print(f"  w1 = {w1_cf:.10f}")
     print(f"  w2 = {w2_cf:.10f}")
+    print(f"  w3 = {w3_cf:.10f}")
 
-    def mse(w1, w2):
+    def mse(w1, w2, w3):
         n = len(y)
-        return sum((w1 * x1[i] + w2 * x2[i] - y[i]) ** 2 for i in range(n)) / n
+        return sum((w1 * x1[i] + w2 * x2[i] + w3 - y[i]) ** 2 for i in range(n)) / n
 
     print()
-    print(f"MSE GD: {mse(w1_gd, w2_gd):.6f}")
-    print(f"MSE CF: {mse(w1_cf, w2_cf):.6f}")
+    print(f"MSE GD: {mse(w1_gd, w2_gd, w3_gd):.6f}")
+    print(f"MSE CF: {mse(w1_cf, w2_cf, w3_cf):.6f}")
 
     # Plot data points and the fitted function (plane) using matplotlib in 3D
     try:
@@ -133,7 +182,7 @@ def main():
             np.linspace(x1_min - pad1, x1_max + pad1, 30),
             np.linspace(x2_min - pad2, x2_max + pad2, 30),
         )
-        Z_gd = w1_gd * X1 + w2_gd * X2
+        Z_gd = w1_gd * X1 + w2_gd * X2 + w3_gd
 
         fig = plt.figure(figsize=(8, 6))
         ax = fig.add_subplot(111, projection="3d")
@@ -147,7 +196,7 @@ def main():
         ax.set_xlabel("D^2")
         ax.set_ylabel("H")
         ax.set_zlabel("C")
-        ax.set_title(f"Fitted plane: C = {w1_gd:.4g}·D^2 + {w2_gd:.4g}·H")
+        ax.set_title(f"Fitted plane: C = {w1_gd:.4g}·D^2 + {w2_gd:.4g}·H + {w3_gd:.4g}")
 
         # Legend: create a proxy for the surface
         from matplotlib.patches import Patch
