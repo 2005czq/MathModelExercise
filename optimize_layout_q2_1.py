@@ -224,11 +224,11 @@ def visualize_layout(D: float, centers: np.ndarray, forb: ForbiddenLines, outpat
     if len(centers) > 0:
         ax.scatter(centers[:, 0], centers[:, 1], s=10, c='tab:blue', label='Turbines', zorder=3)
         # Draw a subset of circles to avoid huge rendering cost if many points
-        max_circles = 500
-        step = max(1, len(centers) // max_circles)
-        for i in range(0, len(centers), step):
-            circ = plt.Circle((centers[i, 0], centers[i, 1]), r, color='tab:blue', fill=False, alpha=0.3, linewidth=0.5)
-            ax.add_patch(circ)
+        # max_circles = 500
+        # step = max(1, len(centers) // max_circles)
+        # for i in range(0, len(centers), step):
+        #     circ = plt.Circle((centers[i, 0], centers[i, 1]), r, color='tab:blue', fill=False, alpha=0.3, linewidth=0.5)
+        #     ax.add_patch(circ)
 
     ax.legend(loc='upper right')
     ax.grid(True, linestyle='--', alpha=0.3)
